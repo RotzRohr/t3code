@@ -109,6 +109,9 @@ import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { SidebarFolderDrop } from "./sidebar/SidebarFolderDrop";
+import { renderSidebarThreadFolderBlock } from "./sidebar/SidebarThreadFolderBlock";
+import { ThreadFolderNameDialogHost } from "./sidebar/ThreadFolderNameDialog";
+import { useSidebarThreadFolders } from "./sidebar/useSidebarThreadFolders";
 import {
   pickableProjectGroups,
   selectProjectGroupingSettings,
@@ -179,6 +182,7 @@ import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
+  type ThreadActionMenuId,
 } from "./threadActionMenu.logic";
 import {
   applySidebarThreadDrop,
@@ -1312,7 +1316,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
-    activeThreads,
+    activeThreads: unfolderedActiveThreads,
     workingThreads,
     snoozedThreads,
     settledThreads,
@@ -1334,13 +1338,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     renderedSettledThreads,
     visibleSnoozedThreads,
     visibleWorkingThreads,
-    orderedThreadKeys,
+    orderedThreadKeys: unfolderedOrderedThreadKeys,
     threadByKey,
     settledThreadKeys,
     snoozedThreadKeys,
     sectionByThreadKey,
     pinnedKeys,
-    activeKeys,
     pinnedKeysById,
     activeKeysById,
   } = useSidebarThreads({
@@ -1361,6 +1364,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
+  // Fork: thread folders reorder the active section; boring mode keeps its project folders.
+  const threadFolders = useSidebarThreadFolders({
+    enabled: !boringSidebarEnabled,
+    activeThreads: unfolderedActiveThreads,
+    listedThreads: searchableThreads,
+    routeRowThreadKey,
+    environmentIds: [...serverConfigs.keys()],
+  });
+  const activeThreads = threadFolders.activeThreads;
+  const activeKeys = activeThreads.map(threadShellKey);
+  const orderedThreadKeys = threadFolders.orderKeys(unfolderedOrderedThreadKeys);
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
@@ -2389,6 +2403,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 ]
               : []),
             { id: "mark-unread", label: gt("Mark unread ({count})", { count }) },
+            ...threadFolders.threadMenuItems(selectedThreads),
             {
               id: "delete",
               label: gt("Delete ({count})", { count }),
@@ -2401,6 +2416,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ),
       );
       if (clicked._tag === "Failure" || clicked.value === null) return;
+      if (threadFolders.handleThreadMenu(clicked.value, selectedThreads)) return;
       const actionTargets =
         clicked.value === "unpin"
           ? pinnedSelectedThreads
@@ -2693,12 +2709,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
+              extraItems: threadFolders.threadMenuItems<ThreadActionMenuId>([thread]),
             }),
             position,
             source,
           ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        if (threadFolders.handleThreadMenu(clicked.value, [thread])) return;
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
@@ -3546,6 +3564,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         if (item.kind === "thread") {
                           // Folders draw active rows in their own place below.
                           if (projectFolders !== null && item.section === "active") continue;
+                          if (threadFolders.folderedKeys.has(item.key)) continue;
                           items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
                           continue;
                         }
@@ -3613,6 +3632,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 }
                                 isDropTarget={dragTargetSection === "active"}
                               />,
+                            );
+                            items.push(
+                              ...renderSidebarThreadFolderBlock(
+                                threadFolders,
+                                (thread, folderRow) => renderThreadRow(thread, "active", folderRow),
+                              ),
                             );
                             break;
                           case "working-header":
@@ -3723,6 +3748,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         </SidebarGroup>
       </SidebarContent>
       <SidebarChromeFooter />
+      <ThreadFolderNameDialogHost />
     </SidebarFolderDrop>
   );
 }

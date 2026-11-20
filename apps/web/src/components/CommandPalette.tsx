@@ -292,6 +292,7 @@ import { readIssueListPreferences } from "~/components/issue/issueListPreference
 import { IssueGlyph } from "~/components/issue/issuePresentation";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import { threadRecentUse } from "@t3tools/shared/paletteSearch";
+import { useThreadFolderPaletteItem } from "./sidebar/useThreadFolderPaletteItem";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
@@ -548,6 +549,14 @@ function OpenCommandPaletteDialog(props: {
         delegatedUnderParent,
       ),
   );
+  // Fork: thread folders.
+  const threadFolderItem = useThreadFolderPaletteItem({
+    thread: activeThread ?? null,
+    threads,
+    environmentIds: environments.flatMap((environment) =>
+      environment.serverConfig === null ? [] : [environment.environmentId],
+    ),
+  });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
@@ -1434,6 +1443,7 @@ function OpenCommandPaletteDialog(props: {
   }
 
   if (portForwardItem) actionItems.push(portForwardItem);
+  if (threadFolderItem) actionItems.push(threadFolderItem);
 
   const promptLinkTarget = paletteRouteTarget
     ? paletteRouteTarget.kind === "server"

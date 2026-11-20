@@ -95,6 +95,8 @@ export function buildDraftActionMenuItems(
 
 export interface ThreadActionMenuState {
   readonly canOperate: boolean;
+  /** Fork: thread folder items, placed before archive and delete. */
+  readonly extraItems?: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>;
   readonly canFind?: boolean;
   /** False where no inline title editor is rendered, such as sidebar search results. */
   readonly canRename?: boolean;
@@ -294,6 +296,7 @@ export function buildThreadActionMenuItems(
       ],
     },
     { id: "project-settings", label: resolve(msg("Project settings")), icon: "settings" },
+    ...(state.extraItems ?? []),
     {
       id: "archive",
       label: resolve(msg("Archive thread")),
