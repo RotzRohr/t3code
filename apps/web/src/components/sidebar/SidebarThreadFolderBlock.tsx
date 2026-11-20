@@ -25,7 +25,6 @@ export function renderSidebarThreadFolderBlock(
         onContextMenu={(path, position, source) =>
           void folders.openFolderMenu(path, position, source)
         }
-        onDropThread={folders.dropThread}
         onDropFolder={folders.dropFolder}
       />
     ) : (
@@ -45,7 +44,6 @@ export function renderSidebarThreadFolderBlock(
       key="thread-folder:unfile"
       indentCss={indentCss}
       isFoldered={folders.isFoldered}
-      onDrop={(threadKey) => folders.dropThread(threadKey, null)}
     />,
   );
   return items;

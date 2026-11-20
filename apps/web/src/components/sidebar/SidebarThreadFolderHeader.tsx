@@ -1,4 +1,4 @@
-import { type DragMoveEvent, type DragEndEvent, useDndMonitor } from "@dnd-kit/core";
+import { useDndMonitor } from "@dnd-kit/core";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { ContextMenuSource } from "@t3tools/contracts";
@@ -11,7 +11,12 @@ import { contextMenuSourceOf } from "../../contextMenuSource";
 import { useUiStateStore } from "../../uiStateStore";
 import { resolveSidebarFolderDot, resolveThreadLastVisitedAt } from "../Sidebar.logic";
 import type { FolderPath, ThreadFolderNode } from "./threadFolders.logic";
-import { type FolderDropZone, threadFolderRowId } from "./useSidebarThreadFolders";
+import {
+  type FolderDropZone,
+  THREAD_FOLDER_DROP_ATTRIBUTE,
+  dragPointer,
+  threadFolderRowId,
+} from "./useSidebarThreadFolders";
 
 const FOLDER_DRAG_TYPE = "application/x-t3code-thread-folder";
 export const THREAD_FOLDER_INDENT_PX = 14;
@@ -30,13 +35,6 @@ const FOLDER_DOT_LABEL = {
   working: msg(", working", { $context: "project folder status, read after its name" }),
 } as const;
 
-/** Where a dnd-kit drag's pointer is now; the sidebar list uses pointer sensors. */
-function dragPointer(event: DragMoveEvent | DragEndEvent): { x: number; y: number } | null {
-  const start = event.activatorEvent;
-  if (!(start instanceof PointerEvent) && !(start instanceof MouseEvent)) return null;
-  return { x: start.clientX + event.delta.x, y: start.clientY + event.delta.y };
-}
-
 function contains(element: HTMLElement | null, point: { x: number; y: number } | null) {
   if (element === null || point === null) return false;
   const rect = element.getBoundingClientRect();
@@ -45,11 +43,10 @@ function contains(element: HTMLElement | null, point: { x: number; y: number } |
   );
 }
 
-/** Calls `onDrop` with the dragged thread key when a sidebar thread drag ends over `ref`. */
-function useThreadDropTarget(
+/** Whether a sidebar thread drag the target `accepts` is over `ref`; the sidebar applies the drop. */
+function useThreadDropHighlight(
   ref: React.RefObject<HTMLElement | null>,
   accepts: (threadKey: string) => boolean,
-  onDrop: (threadKey: string) => void,
 ) {
   const [over, setOver] = useState(false);
   useDndMonitor({
@@ -57,11 +54,7 @@ function useThreadDropTarget(
       const next = accepts(String(event.active.id)) && contains(ref.current, dragPointer(event));
       if (next !== over) setOver(next);
     },
-    onDragEnd: (event) => {
-      setOver(false);
-      const threadKey = String(event.active.id);
-      if (accepts(threadKey) && contains(ref.current, dragPointer(event))) onDrop(threadKey);
-    },
+    onDragEnd: () => setOver(false),
     onDragCancel: () => setOver(false),
   });
   return over;
@@ -77,7 +70,6 @@ export function SidebarThreadFolderHeader(props: {
     position: { x: number; y: number },
     source: ContextMenuSource,
   ) => void;
-  onDropThread: (threadKey: string, path: FolderPath) => void;
   onDropFolder: (from: FolderPath, target: FolderPath, zone: FolderDropZone) => void;
 }) {
   const m = useMessages();
@@ -85,11 +77,7 @@ export function SidebarThreadFolderHeader(props: {
   const rowId = threadFolderRowId(node.path);
   const ref = useRef<HTMLButtonElement>(null);
   const [folderZone, setFolderZone] = useState<FolderDropZone | null>(null);
-  const threadOver = useThreadDropTarget(
-    ref,
-    () => true,
-    (threadKey) => props.onDropThread(threadKey, node.path),
-  );
+  const threadOver = useThreadDropHighlight(ref, () => true);
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const dot = collapsed
     ? resolveSidebarFolderDot(
@@ -117,6 +105,7 @@ export function SidebarThreadFolderHeader(props: {
         type="button"
         draggable
         data-sidebar-row={rowId}
+        {...{ [THREAD_FOLDER_DROP_ATTRIBUTE]: node.path }}
         data-sidebar-parent={
           node.depth === 0
             ? undefined
@@ -202,11 +191,10 @@ export function SidebarThreadFolderHeader(props: {
 export function SidebarThreadFolderUnfileZone(props: {
   indentCss: string;
   isFoldered: (threadKey: string) => boolean;
-  onDrop: (threadKey: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
-  const over = useThreadDropTarget(ref, props.isFoldered, props.onDrop);
+  const over = useThreadDropHighlight(ref, props.isFoldered);
   useDndMonitor({
     onDragStart: (event) => setDragging(props.isFoldered(String(event.active.id))),
     onDragEnd: () => setDragging(false),
@@ -217,6 +205,7 @@ export function SidebarThreadFolderUnfileZone(props: {
       {props.indentCss === "" ? null : <style>{props.indentCss}</style>}
       <div
         ref={ref}
+        {...{ [THREAD_FOLDER_DROP_ATTRIBUTE]: "" }}
         className={cn(
           "pointer-events-none absolute inset-x-0 top-1 z-20 flex h-8 items-center justify-center gap-2 rounded-(--control-radius) border border-dashed text-xs",
           dragging ? "visible" : "invisible",

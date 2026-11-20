@@ -2119,6 +2119,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   })();
   const handleThreadDragEnd = (event: DragEndEvent) => {
     if (projectFolders !== null) return;
+    if (threadFolders.claimDrop(event)) return;
     const activeKey = String(event.active.id);
     const activeSection = sectionByThreadKey.get(activeKey);
     const target =

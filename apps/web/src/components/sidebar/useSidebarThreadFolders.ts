@@ -1,3 +1,4 @@
+import type { DragEndEvent, DragMoveEvent } from "@dnd-kit/core";
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
@@ -57,6 +58,36 @@ function now() {
 }
 
 export type FolderDropZone = "before" | "inside" | "after";
+
+/** Marks a thread drop target: a folder path, or "" to take threads out of folders. */
+export const THREAD_FOLDER_DROP_ATTRIBUTE = "data-thread-folder-drop";
+
+/** Where a dnd-kit drag's pointer is now; the sidebar list drags with pointer sensors. */
+export function dragPointer(event: DragMoveEvent | DragEndEvent): { x: number; y: number } | null {
+  const start = event.activatorEvent;
+  if (!(start instanceof MouseEvent)) return null;
+  return { x: start.clientX + event.delta.x, y: start.clientY + event.delta.y };
+}
+
+function dropTargetAt(point: { x: number; y: number }): FolderPath | null | undefined {
+  for (const element of document.querySelectorAll<HTMLElement>(
+    `[${THREAD_FOLDER_DROP_ATTRIBUTE}]`,
+  )) {
+    if (getComputedStyle(element).visibility === "hidden") continue;
+    const rect = element.getBoundingClientRect();
+    if (
+      point.x < rect.left ||
+      point.x > rect.right ||
+      point.y < rect.top ||
+      point.y > rect.bottom
+    ) {
+      continue;
+    }
+    const path = element.getAttribute(THREAD_FOLDER_DROP_ATTRIBUTE) ?? "";
+    return path === "" ? null : path;
+  }
+  return undefined;
+}
 
 function threadKey(thread: EnvironmentThreadShell) {
   return scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
@@ -378,6 +409,15 @@ export function useSidebarThreadFolders(input: {
     void moveThreads(draggedThreads(key), target);
     if (target !== null) setCollapsed(target, false);
   };
+  /** Takes a thread drop that ends on a folder target, so the sidebar's own drop does not also run. */
+  const claimDrop = (event: DragEndEvent): boolean => {
+    if (!input.enabled) return false;
+    const point = dragPointer(event);
+    const target = point === null ? undefined : dropTargetAt(point);
+    if (target === undefined) return false;
+    dropThread(String(event.active.id), target);
+    return true;
+  };
   const isFoldered = (key: string) => {
     const thread = threadByKey.get(key);
     return thread !== undefined && threadFolderOf(thread) !== null;
@@ -496,7 +536,7 @@ export function useSidebarThreadFolders(input: {
     orderKeys,
     toggle: (path: FolderPath) => setCollapsed(path, collapsedByPath[path] !== true),
     moveThreads,
-    dropThread,
+    claimDrop,
     isFoldered,
     createFolder,
     dropFolder,
