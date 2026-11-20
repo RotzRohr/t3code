@@ -1,4 +1,4 @@
-import type { DragEndEvent, DragMoveEvent } from "@dnd-kit/core";
+import { type DragEndEvent, useDndMonitor } from "@dnd-kit/core";
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
@@ -16,6 +16,7 @@ import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { randomUUID } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
 import { serverEnvironment } from "../../state/server";
+import { readThreadShells } from "../../state/entities";
 import { readEnvironmentScope } from "../../state/session";
 import { threadFolderMetaAtom, threadTagSet } from "../../state/threadFolders";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -62,11 +63,30 @@ export type FolderDropZone = "before" | "inside" | "after";
 /** Marks a thread drop target: a folder path, or "" to take threads out of folders. */
 export const THREAD_FOLDER_DROP_ATTRIBUTE = "data-thread-folder-drop";
 
-/** Where a dnd-kit drag's pointer is now; the sidebar list drags with pointer sensors. */
-export function dragPointer(event: DragMoveEvent | DragEndEvent): { x: number; y: number } | null {
-  const start = event.activatorEvent;
-  if (!(start instanceof MouseEvent)) return null;
-  return { x: start.clientX + event.delta.x, y: start.clientY + event.delta.y };
+// The drag delta is clamped by the sidebar's modifiers, so the real pointer is tracked instead.
+let draggingPointer: { x: number; y: number } | null = null;
+const trackDragPointer = (event: PointerEvent) => {
+  draggingPointer = { x: event.clientX, y: event.clientY };
+};
+
+/** Tracks the pointer while a sidebar drag runs; mount once inside the sidebar's DndContext. */
+export function useTrackThreadDragPointer() {
+  useDndMonitor({
+    onDragStart: (event) => {
+      const start = event.activatorEvent;
+      draggingPointer = start instanceof MouseEvent ? { x: start.clientX, y: start.clientY } : null;
+      window.addEventListener("pointermove", trackDragPointer, { capture: true, passive: true });
+    },
+    // The position stays readable for the sidebar's own drag-end handler, which runs after this.
+    onDragEnd: () => window.removeEventListener("pointermove", trackDragPointer, { capture: true }),
+    onDragCancel: () =>
+      window.removeEventListener("pointermove", trackDragPointer, { capture: true }),
+  });
+}
+
+/** Where the pointer of the running (or just ended) sidebar drag is. */
+export function dragPointer(): { x: number; y: number } | null {
+  return draggingPointer;
 }
 
 function dropTargetAt(point: { x: number; y: number }): FolderPath | null | undefined {
@@ -253,7 +273,7 @@ export function useSidebarThreadFolders(input: {
         const plan = planCreateFolder<EnvironmentThreadShell>({
           parent,
           name,
-          knownPaths: tree.paths,
+          knownPaths: editScope().knownPaths,
           meta,
           now: now(),
         });
@@ -265,7 +285,22 @@ export function useSidebarThreadFolders(input: {
       },
     });
 
-  const folderThreads = allThreads.map((thread) => ({ ref: thread, tags: thread.source.tags }));
+  // Folder edits act on every loaded thread, not only the ones the project filter shows.
+  const editScope = () => {
+    const threads = readThreadShells();
+    return {
+      threads: threads.map((thread) => ({ ref: thread, tags: thread.source.tags })),
+      knownPaths: buildThreadFolderTree({
+        threads: [],
+        folderOf: threadFolderOf,
+        meta,
+        extraPaths: threads.flatMap((thread) => {
+          const path = threadFolderOf(thread);
+          return path === null ? [] : [path];
+        }),
+      }).paths,
+    };
+  };
 
   const renameFolder = (path: FolderPath) =>
     requestThreadFolderName({
@@ -275,8 +310,7 @@ export function useSidebarThreadFolders(input: {
         const plan = planRenameFolder({
           path,
           name,
-          threads: folderThreads,
-          knownPaths: tree.paths,
+          ...editScope(),
           meta,
           now: now(),
         });
@@ -295,8 +329,7 @@ export function useSidebarThreadFolders(input: {
     const plan = planRelocateFolder({
       from,
       to,
-      threads: folderThreads,
-      knownPaths: tree.paths,
+      ...editScope(),
       meta,
       now: now(),
     });
@@ -365,7 +398,7 @@ export function useSidebarThreadFolders(input: {
         )
       : true;
     if (!confirmed) return;
-    await applyPlan(planDeleteFolder({ path, threads: folderThreads, meta, now: now() }));
+    await applyPlan(planDeleteFolder({ path, threads: editScope().threads, meta, now: now() }));
   };
 
   /** Drops `from` on `target`: inside nests it, before/after makes it a sibling there. */
@@ -412,7 +445,7 @@ export function useSidebarThreadFolders(input: {
   /** Takes a thread drop that ends on a folder target, so the sidebar's own drop does not also run. */
   const claimDrop = (event: DragEndEvent): boolean => {
     if (!input.enabled) return false;
-    const point = dragPointer(event);
+    const point = dragPointer();
     const target = point === null ? undefined : dropTargetAt(point);
     if (target === undefined) return false;
     dropThread(String(event.active.id), target);
@@ -441,8 +474,7 @@ export function useSidebarThreadFolders(input: {
           ...folderPaths.map((path) => ({
             id: `${MENU_PREFIX}move:${path}`,
             label: folderLabel(path),
-            checked: only === path,
-            disabled: only === path,
+            ...(only === path ? { checked: true, disabled: true } : {}),
           })),
           {
             id: `${MENU_PREFIX}new`,

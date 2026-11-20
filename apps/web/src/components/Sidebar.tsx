@@ -2120,7 +2120,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   })();
   const handleThreadDragEnd = (event: DragEndEvent) => {
     if (projectFolders !== null) return;
-    if (threadFolders.claimDrop(event)) return;
+    // Fork: a folder files the thread; a pinned, snoozed or settled one also comes back to Active.
+    if (
+      threadFolders.claimDrop(event) &&
+      sectionByThreadKey.get(String(event.active.id)) === "active"
+    )
+      return;
     const activeKey = String(event.active.id);
     const activeSection = sectionByThreadKey.get(activeKey);
     const target =

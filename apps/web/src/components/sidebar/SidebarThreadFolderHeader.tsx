@@ -16,6 +16,7 @@ import {
   THREAD_FOLDER_DROP_ATTRIBUTE,
   dragPointer,
   threadFolderRowId,
+  useTrackThreadDragPointer,
 } from "./useSidebarThreadFolders";
 
 const FOLDER_DRAG_TYPE = "application/x-t3code-thread-folder";
@@ -51,7 +52,7 @@ function useThreadDropHighlight(
   const [over, setOver] = useState(false);
   useDndMonitor({
     onDragMove: (event) => {
-      const next = accepts(String(event.active.id)) && contains(ref.current, dragPointer(event));
+      const next = accepts(String(event.active.id)) && contains(ref.current, dragPointer());
       if (next !== over) setOver(next);
     },
     onDragEnd: () => setOver(false),
@@ -194,6 +195,7 @@ export function SidebarThreadFolderUnfileZone(props: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
+  useTrackThreadDragPointer();
   const over = useThreadDropHighlight(ref, props.isFoldered);
   useDndMonitor({
     onDragStart: (event) => setDragging(props.isFoldered(String(event.active.id))),
